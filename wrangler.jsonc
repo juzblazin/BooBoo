@@ -1,0 +1,11 @@
+{
+  "name": "boo-hex-watchlist",
+  "main": "workers/hex_watchlist_cron.ts",
+  "compatibility_date": "2026-01-01",
+  "triggers": {
+    "crons": ["0 6 * * *"]
+  },
+  "vars": {
+    "APP_URL": "https://boo.sh"
+  }
+}
