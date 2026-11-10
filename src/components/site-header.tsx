@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FlaskConical, Sparkles } from "lucide-react";
 import { BooMark } from "./salem";
-import { currentWorkspace, PLAN_LIMITS } from "@/lib/store";
+import { currentWorkspace, PLANS } from "@/lib/store";
 import { Badge } from "@/components/ui/badge";
 
 const NAV = [
@@ -45,7 +45,7 @@ export async function SiteHeader() {
             <div className="hidden items-center gap-1.5 sm:flex" aria-label="Workspace balances">
               <Badge variant="secondary" className="gap-1">
                 <Sparkles />
-                <span className="num">{Math.max(0, ws.spellsBalance - ws.spellsUsed)}</span>
+                <span className="num">{ws.monthlyTaskRunsRemaining}</span>
                 <span className="text-muted-foreground">spells</span>
               </Badge>
               <Badge variant="success" className="gap-1">
@@ -53,7 +53,7 @@ export async function SiteHeader() {
                 <span className="num">{ws.elixirCreditsBalance}</span>
                 <span className="text-muted-foreground">credits</span>
               </Badge>
-              <Badge variant="brand">{PLAN_LIMITS[ws.planTier].label}</Badge>
+              <Badge variant="brand">{PLANS[ws.planTier].label}</Badge>
             </div>
           )}
           <Link

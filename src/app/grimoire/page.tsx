@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BookOpen } from "lucide-react";
 import { Salem } from "@/components/salem";
 import { DomainMark, ToneBadge } from "@/components/ui";
-import { currentWorkspace, PLAN_LIMITS, store } from "@/lib/store";
+import { currentWorkspace, PLANS, store } from "@/lib/store";
 
 export const metadata = { title: "My Reports" };
 export const dynamic = "force-dynamic";
@@ -25,9 +25,10 @@ export default async function reportPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ToneBadge tone="brand">{PLAN_LIMITS[ws.planTier].label}</ToneBadge>
+          <ToneBadge tone="brand">{PLANS[ws.planTier].label}</ToneBadge>
           <ToneBadge tone="neutral">
-            {Math.max(0, ws.spellsBalance - ws.spellsUsed)} spells left
+            {ws.monthlyTaskRunsRemaining} spells left · {ws.maxCompetitorsPerTask} competitor
+            {ws.maxCompetitorsPerTask === 1 ? "" : "s"} each
           </ToneBadge>
           <ToneBadge tone="emerald">{ws.elixirCreditsBalance} credits</ToneBadge>
         </div>

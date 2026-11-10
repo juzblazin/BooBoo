@@ -13,7 +13,16 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  await currentWorkspace(); // ensure workspace row exists
+  const ws = await currentWorkspace(); // ensure workspace row exists
   const result = await discoverForQuery(query);
-  return NextResponse.json({ input: query, ...result });
+  return NextResponse.json({
+    input: query,
+    ...result,
+    plan: {
+      tier: ws.planTier,
+      maxCompetitors: ws.maxCompetitorsPerTask,
+      runsRemaining: ws.monthlyTaskRunsRemaining,
+      freeTrialConsumed: ws.freeTrialConsumed,
+    },
+  });
 }

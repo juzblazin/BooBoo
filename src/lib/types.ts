@@ -1,3 +1,5 @@
+import type { PlanTier } from "@/lib/plans";
+
 export type RivalKind = "direct" | "search" | "paid";
 
 export interface Rival {
@@ -210,6 +212,9 @@ export interface Buyer {
 }
 
 export type SpellStatus = "brewing" | "ready" | "failed";
+/** Lifecycle of the task-run quota held by a spell: reserved at dispatch,
+ *  committed on completion, refunded if the run fails or is reaped. */
+export type QuotaState = "reserved" | "committed" | "refunded";
 export type SalemState = "idle" | "stalking" | "brewing" | "summoned";
 
 export interface CastEvent {
@@ -228,6 +233,8 @@ export interface GrimoireSpell {
   category: string;
   rivals: Rival[];
   selectedDomains: string[];
+  tierAtExecution: PlanTier;
+  quotaState: QuotaState;
   status: SpellStatus;
   progress: CastEvent[];
   hexes: HexReport[] | null;
@@ -245,8 +252,10 @@ export interface GrimoireSpell {
 export interface Workspace {
   id: string;
   name: string;
-  planTier: "free" | "apprentice" | "sorcerer" | "coven";
-  spellsBalance: number;
+  planTier: PlanTier;
+  maxCompetitorsPerTask: number;
+  freeTrialConsumed: boolean;
+  monthlyTaskRunsRemaining: number;
   elixirCreditsBalance: number;
   spellsUsed: number;
   parentAgencyWorkspaceId: string | null;

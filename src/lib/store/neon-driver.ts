@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, gt, gte, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import * as s from "@/db/schema";
 import type {
@@ -15,6 +15,7 @@ import type {
   StoreDriver,
   TeleportIntegration,
 } from "./types";
+import { PLANS, normalizeTier } from "@/lib/plans";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,6 +28,8 @@ function spellFromRow(r: any): GrimoireSpell {
     category: r.category ?? "B2B SaaS",
     rivals: (r.rivalsJson as any) ?? [],
     selectedDomains: (r.selectedDomains as any) ?? [],
+    tierAtExecution: normalizeTier(r.tierAtExecution),
+    quotaState: r.quotaState ?? "committed",
     status: r.status,
     progress: (r.progressJson as any) ?? [],
     hexes: (r.hexesAndGapsJson as any) ?? null,
@@ -66,23 +69,26 @@ function buyerFromRow(r: any): Buyer {
   };
 }
 
+function workspaceFromRow(r: any): Workspace {
+  return {
+    id: r.id,
+    name: r.name,
+    planTier: normalizeTier(r.planTier),
+    maxCompetitorsPerTask: r.maxCompetitorsPerTask,
+    freeTrialConsumed: r.freeTrialConsumed,
+    monthlyTaskRunsRemaining: r.monthlyTaskRunsRemaining,
+    spellsUsed: r.spellsUsed,
+    elixirCreditsBalance: r.elixirCreditsBalance,
+    parentAgencyWorkspaceId: r.parentAgencyWorkspaceId,
+    whitelabel: (r.whitelabelJson as any) ?? null,
+    createdAt: new Date(r.createdAt).toISOString(),
+  };
+}
+
 export const neonDriver: StoreDriver = {
   async getWorkspace(id) {
     const rows = await db!.select().from(s.workspaces).where(eq(s.workspaces.id, id)).limit(1);
-    const r = rows[0] as any;
-    if (!r) return null;
-    const w: Workspace = {
-      id: r.id,
-      name: r.name,
-      planTier: r.planTier,
-      spellsBalance: r.spellsBalance,
-      spellsUsed: r.spellsUsed,
-      elixirCreditsBalance: r.elixirCreditsBalance,
-      parentAgencyWorkspaceId: r.parentAgencyWorkspaceId,
-      whitelabel: (r.whitelabelJson as any) ?? null,
-      createdAt: new Date(r.createdAt).toISOString(),
-    };
-    return w;
+    return rows[0] ? workspaceFromRow(rows[0]) : null;
   },
 
   async putWorkspace(w) {
@@ -92,7 +98,9 @@ export const neonDriver: StoreDriver = {
         id: w.id,
         name: w.name,
         planTier: w.planTier,
-        spellsBalance: w.spellsBalance,
+        maxCompetitorsPerTask: w.maxCompetitorsPerTask,
+        freeTrialConsumed: w.freeTrialConsumed,
+        monthlyTaskRunsRemaining: w.monthlyTaskRunsRemaining,
         spellsUsed: w.spellsUsed,
         elixirCreditsBalance: w.elixirCreditsBalance,
         parentAgencyWorkspaceId: w.parentAgencyWorkspaceId,
@@ -102,13 +110,88 @@ export const neonDriver: StoreDriver = {
         target: s.workspaces.id,
         set: {
           name: w.name,
-          planTier: w.planTier,
-          spellsBalance: w.spellsBalance,
-          spellsUsed: w.spellsUsed,
           elixirCreditsBalance: w.elixirCreditsBalance,
           whitelabelJson: w.whitelabel as any,
         },
       });
+  },
+
+  async applyPlan(workspaceId, tier) {
+    const plan = PLANS[tier];
+    const rows = await db!
+      .update(s.workspaces)
+      .set({
+        planTier: tier,
+        maxCompetitorsPerTask: plan.maxCompetitorsPerTask,
+        monthlyTaskRunsRemaining: plan.monthlyTaskRuns,
+        elixirCreditsBalance: plan.elixirs,
+      })
+      .where(eq(s.workspaces.id, workspaceId))
+      .returning();
+    return rows[0] ? workspaceFromRow(rows[0]) : null;
+  },
+
+  async reserveTaskRun(workspaceId, competitorCount) {
+    const w = s.workspaces;
+    const rows = await db!
+      .update(w)
+      .set({
+        monthlyTaskRunsRemaining: sql`${w.monthlyTaskRunsRemaining} - 1`,
+        spellsUsed: sql`${w.spellsUsed} + 1`,
+      })
+      .where(
+        and(
+          eq(w.id, workspaceId),
+          gt(w.monthlyTaskRunsRemaining, 0),
+          gte(w.maxCompetitorsPerTask, competitorCount),
+          or(ne(w.planTier, "FREE_TRIAL"), eq(w.freeTrialConsumed, false)),
+        ),
+      )
+      .returning();
+    return rows[0] ? workspaceFromRow(rows[0]) : null;
+  },
+
+  async releaseTaskRun(workspaceId) {
+    const w = s.workspaces;
+    await db!
+      .update(w)
+      .set({
+        monthlyTaskRunsRemaining: sql`${w.monthlyTaskRunsRemaining} + 1`,
+        spellsUsed: sql`GREATEST(${w.spellsUsed} - 1, 0)`,
+      })
+      .where(eq(w.id, workspaceId));
+  },
+
+  async commitTaskRun(spellId) {
+    const res = await db!.execute(sql`
+      WITH sp AS (
+        UPDATE grimoire_spells SET quota_state = 'committed', updated_at = now()
+        WHERE id = ${spellId} AND quota_state = 'reserved'
+        RETURNING workspace_id, tier_at_execution
+      ), ws AS (
+        UPDATE workspaces SET free_trial_consumed = true
+        FROM sp WHERE workspaces.id = sp.workspace_id AND sp.tier_at_execution = 'FREE_TRIAL'
+      )
+      SELECT count(*)::int AS n FROM sp`);
+    return Number((res.rows[0] as any)?.n ?? 0) > 0;
+  },
+
+  async refundTaskRun(spellId, reason) {
+    const res = await db!.execute(sql`
+      WITH sp AS (
+        UPDATE grimoire_spells
+        SET quota_state = 'refunded', status = 'failed',
+            error = COALESCE(error, ${reason}), updated_at = now()
+        WHERE id = ${spellId} AND quota_state = 'reserved'
+        RETURNING workspace_id
+      ), ws AS (
+        UPDATE workspaces
+        SET monthly_task_runs_remaining = monthly_task_runs_remaining + 1,
+            spells_used = GREATEST(spells_used - 1, 0)
+        FROM sp WHERE workspaces.id = sp.workspace_id
+      )
+      SELECT count(*)::int AS n FROM sp`);
+    return Number((res.rows[0] as any)?.n ?? 0) > 0;
   },
 
   async getSpell(id) {
@@ -136,6 +219,8 @@ export const neonDriver: StoreDriver = {
         category: sp.category,
         rivalsJson: sp.rivals as any,
         selectedDomains: sp.selectedDomains as any,
+        tierAtExecution: sp.tierAtExecution,
+        quotaState: sp.quotaState,
         status: sp.status,
         progressJson: sp.progress as any,
         hexesAndGapsJson: sp.hexes as any,
@@ -156,7 +241,8 @@ export const neonDriver: StoreDriver = {
           category: sp.category,
           rivalsJson: sp.rivals as any,
           selectedDomains: sp.selectedDomains as any,
-          status: sp.status,
+          // quota_state is owned by commit/refund; a refunded spell stays failed.
+          status: sql`CASE WHEN ${s.grimoireSpells.quotaState} = 'refunded' THEN 'failed' ELSE ${sp.status} END`,
           progressJson: sp.progress as any,
           hexesAndGapsJson: sp.hexes as any,
           darkArtsJson: sp.ads as any,

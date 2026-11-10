@@ -25,6 +25,8 @@ export function SummonClient() {
   const [rivals, setRivals] = useState<Rival[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [upgradeUrl, setUpgradeUrl] = useState<string | null>(null);
+  const [maxCompetitors, setMaxCompetitors] = useState(1);
   const ran = useRef(false);
 
   useEffect(() => {
@@ -41,7 +43,16 @@ export function SummonClient() {
         setMode(d.mode);
         setSubject(d.domain);
         setRivals(d.rivals);
-        setSelected(new Set(d.rivals.filter((r: Rival) => r.preselected).map((r: Rival) => r.domain)));
+        const max = d.plan?.maxCompetitors ?? 1;
+        setMaxCompetitors(max);
+        setSelected(
+          new Set(
+            d.rivals
+              .filter((r: Rival) => r.preselected)
+              .slice(0, max)
+              .map((r: Rival) => r.domain),
+          ),
+        );
         setPhase("choosing");
       })
       .catch((e) => {
@@ -72,6 +83,7 @@ export function SummonClient() {
     const d = await res.json();
     if (!res.ok) {
       setError(d.error ?? "Analysis failed.");
+      setUpgradeUrl(d.upgradeUrl ?? null);
       setPhase("error");
       return;
     }
@@ -90,8 +102,9 @@ export function SummonClient() {
         </h1>
         {phase === "choosing" && (
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Boo found {rivals.length} competitors for {subject}. We pre-selected
-            the top 3 — adjust your picks, then run the analysis.
+            Boo found {rivals.length} competitors for {subject}. Your plan
+            analyzes up to {maxCompetitors} per run — adjust your picks, then
+            run the analysis.
           </p>
         )}
       </div>
@@ -165,7 +178,9 @@ export function SummonClient() {
           </div>
 
           <div className="mt-6 flex items-center justify-between">
-            <ToneBadge tone="neutral">{selected.size} rivals selected</ToneBadge>
+            <ToneBadge tone={selected.size > maxCompetitors ? "crimson" : "neutral"}>
+              {selected.size} / {maxCompetitors} rivals selected
+            </ToneBadge>
             <button
               onClick={cast}
               disabled={!selected.size}
@@ -190,8 +205,8 @@ export function SummonClient() {
           <div className="mx-auto mt-6 max-w-md">
             <SummonForm size="sm" />
           </div>
-          {error?.includes("Spells") && (
-            <a href="/pricing" className="mt-4 inline-block text-sm text-brand hover:underline">
+          {upgradeUrl && (
+            <a href={upgradeUrl} className="mt-4 inline-block text-sm text-brand hover:underline">
               See plans →
             </a>
           )}

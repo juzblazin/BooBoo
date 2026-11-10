@@ -7,9 +7,13 @@ import {
   jsonb,
   timestamp,
   customType,
+  pgEnum,
+  check,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { PLAN_TIERS } from "../lib/plans";
 
 const vector1536 = customType<{ data: number[]; driverData: string }>({
   dataType() {
@@ -19,19 +23,30 @@ const vector1536 = customType<{ data: number[]; driverData: string }>({
 
 /** PRD-01 — 9 production tables (+ elixir_ledger for the credit ledger). */
 
-export const workspaces = pgTable("workspaces", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull().default("My Workspace"),
-  planTier: text("plan_tier").notNull().default("free"),
-  spellsBalance: integer("spells_balance").notNull().default(1),
-  spellsUsed: integer("spells_used").notNull().default(0),
-  elixirCreditsBalance: integer("elixir_credits_balance").notNull().default(5),
-  parentAgencyWorkspaceId: text("parent_agency_workspace_id"),
-  whitelabelJson: jsonb("whitelabel_json"),
-  stripeCustomerId: text("stripe_customer_id"),
-  stripeSubscriptionId: text("stripe_subscription_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const planTierEnum = pgEnum("plan_tier_enum", PLAN_TIERS);
+
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull().default("My Workspace"),
+    planTier: planTierEnum("plan_tier").notNull().default("FREE_TRIAL"),
+    maxCompetitorsPerTask: integer("max_competitors_per_task").notNull().default(1),
+    freeTrialConsumed: boolean("free_trial_consumed").notNull().default(false),
+    monthlyTaskRunsRemaining: integer("monthly_task_runs_remaining").notNull().default(1),
+    spellsUsed: integer("spells_used").notNull().default(0),
+    elixirCreditsBalance: integer("elixir_credits_balance").notNull().default(5),
+    parentAgencyWorkspaceId: text("parent_agency_workspace_id"),
+    whitelabelJson: jsonb("whitelabel_json"),
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("ws_max_competitors_chk", sql`${t.maxCompetitorsPerTask} BETWEEN 1 AND 5`),
+    check("ws_runs_nonneg_chk", sql`${t.monthlyTaskRunsRemaining} >= 0`),
+  ],
+);
 
 export const domainIntelligenceCache = pgTable(
   "domain_intelligence_cache",
@@ -97,6 +112,11 @@ export const grimoireSpells = pgTable(
     category: text("category"),
     rivalsJson: jsonb("rivals_json"),
     selectedDomains: jsonb("selected_domains"),
+    competitorCount: integer("competitor_count").generatedAlwaysAs(
+      sql`jsonb_array_length(selected_domains)`,
+    ),
+    tierAtExecution: planTierEnum("tier_at_execution").notNull(),
+    quotaState: text("quota_state").notNull().default("reserved"),
     status: text("status").notNull().default("brewing"),
     progressJson: jsonb("progress_json"),
     hexesAndGapsJson: jsonb("hexes_and_gaps_json"),
