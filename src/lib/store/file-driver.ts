@@ -37,7 +37,7 @@ function normalizeWorkspace(raw: any): Workspace {
   const planTier = normalizeTier(raw.planTier);
   const legacyRemaining =
     typeof raw.spellsBalance === "number"
-      ? Math.max(0, raw.spellsBalance - (raw.spellsUsed ?? 0))
+      ? Math.max(0, PLANS[planTier].monthlyTaskRuns - (raw.spellsUsed ?? 0))
       : undefined;
   const { spellsBalance: _legacy, ...rest } = raw;
   return {

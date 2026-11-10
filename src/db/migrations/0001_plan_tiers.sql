@@ -24,7 +24,9 @@ ALTER TABLE workspaces ALTER COLUMN plan_tier TYPE plan_tier_enum USING (
 ALTER TABLE workspaces ALTER COLUMN plan_tier SET DEFAULT 'FREE_TRIAL';
 
 ALTER TABLE workspaces RENAME COLUMN spells_balance TO monthly_task_runs_remaining;
-UPDATE workspaces SET monthly_task_runs_remaining = GREATEST(monthly_task_runs_remaining - spells_used, 0);
+-- Allowance comes from the new tier (apprentice had 3 runs; Premium has 10).
+UPDATE workspaces SET monthly_task_runs_remaining = GREATEST(
+  CASE plan_tier WHEN 'PREMIUM' THEN 10 WHEN 'SCALE' THEN 35 ELSE 1 END - spells_used, 0);
 
 ALTER TABLE workspaces
   ADD COLUMN max_competitors_per_task integer NOT NULL DEFAULT 1,
