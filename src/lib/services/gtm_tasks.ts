@@ -94,7 +94,15 @@ export async function createGtmTask(input: GtmTaskInput): Promise<GtmTaskResult>
     userDomain,
     companyName: input.companyName ?? titleFromDomain(userDomain),
     category: input.category ?? "B2B SaaS",
-    rivals: input.rivals ?? [],
+    rivals: input.rivals?.length
+      ? input.rivals
+      : competitors.map((domain) => ({
+          domain,
+          name: titleFromDomain(domain),
+          kind: "direct" as const,
+          overlapScore: 0,
+          reason: "Submitted as a competitor",
+        })),
     selectedDomains: competitors,
     tierAtExecution: reserved.planTier,
     quotaState: "reserved",
