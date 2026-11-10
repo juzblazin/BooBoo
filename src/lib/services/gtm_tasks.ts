@@ -29,7 +29,7 @@ export interface GtmTaskInput {
 
 export type GtmTaskResult = { ok: true; spell: GrimoireSpell } | ({ ok: false } & GateRejection);
 
-/** AC-02 — refunds runs whose worker died without reporting back. */
+/** AC-02 — refunds runs whose worker died, or failed without its refund landing. */
 export async function reapStaleRuns(workspaceId: string) {
   const cutoff = Date.now() - STALE_RUN_MS;
   const spells = await store.listSpells(workspaceId);
@@ -38,9 +38,8 @@ export async function reapStaleRuns(workspaceId: string) {
       .filter(
         (sp) =>
           sp.quotaState === "reserved" &&
-          sp.status === "brewing" &&
-          Date.parse(sp.createdAt) < cutoff &&
-          !isJobActive(sp.id),
+          !isJobActive(sp.id) &&
+          (sp.status === "failed" || (sp.status === "brewing" && Date.parse(sp.createdAt) < cutoff)),
       )
       .map((sp) => store.refundTaskRun(sp.id, "The analysis worker stopped responding — your run was refunded.")),
   );
