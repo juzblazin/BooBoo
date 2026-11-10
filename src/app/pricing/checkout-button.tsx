@@ -5,7 +5,15 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export function CheckoutButton({ plan, featured }: { plan: string; featured?: boolean }) {
+export function CheckoutButton({
+  plan,
+  label,
+  featured,
+}: {
+  plan: string;
+  label: string;
+  featured?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -42,7 +50,7 @@ export function CheckoutButton({ plan, featured }: { plan: string; featured?: bo
       )}
     >
       {busy && <Loader2 className="size-4 animate-spin" />}
-      Upgrade to {plan}
+      Upgrade to {label}
     </button>
   );
 }

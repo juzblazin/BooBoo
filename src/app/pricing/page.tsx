@@ -2,63 +2,50 @@ import { Check } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { CheckoutButton } from "./checkout-button";
 import { ToneBadge } from "@/components/ui";
+import { PLANS } from "@/lib/plans";
 
 export const metadata = { title: "Pricing" };
 
-const PLANS = [
+const TIERS = [
   {
-    id: "free",
-    name: "Free Teaser",
-    monthly: 0,
-    annual: 0,
-    tagline: "Taste the magic",
-    features: ["1 Spell", "5 Contact Credits", "Full 6-tab report", "CSV export"],
-    cta: "Start free",
-    href: "/#summon",
-  },
-  {
-    id: "apprentice",
-    name: "Starter",
-    monthly: 149,
-    annual: 129,
-    tagline: "For solo founders",
+    ...PLANS.FREE_TRIAL,
+    tagline: "Validate the intelligence in 60 seconds",
     features: [
-      "3 Spells / month",
-      "500 Contact Credits",
-      "Ad Intelligence",
-      "CSV Export",
+      "1 competitor per analysis",
+      "6-channel snapshot (cached-first, top 50 reviews & ads)",
+      "1-vs-1 head-to-head gap matrix",
+      "Core ICP + 1 buyer persona",
+      "1 validation sprint card",
+      "Read-only report + copy to clipboard",
     ],
   },
   {
-    id: "sorcerer",
-    name: "Pro",
-    monthly: 399,
-    annual: 349,
-    tagline: "For revenue teams",
+    ...PLANS.PREMIUM,
+    tagline: "For growth & revenue teams",
     featured: true,
     features: [
-      "10 Spells / month",
-      "2,500 Contact Credits",
-      "250 Direct Dials",
-      "90-day Timing & Trends calendar",
-      "The GTM Strategy",
-      "Rival Watchlists",
-      "1-Click CRM / Sequencer Export",
+      "Up to 3 competitors per analysis",
+      `${PLANS.PREMIUM.monthlyTaskRuns} analyses / month`,
+      "Full 6-channel deep dive",
+      "3-way category matrix",
+      "Economic vs. operator personas + full counter-messaging",
+      "3 sprint cards",
+      "CSV export + Notion / Slack webhook",
+      "Weekly competitor polling",
     ],
   },
   {
-    id: "coven",
-    name: "Agency",
-    monthly: 899,
-    annual: 749,
-    tagline: "Agencies & teams",
+    ...PLANS.SCALE,
+    tagline: "For agencies & category leaders",
     features: [
-      "35 Spells / month",
-      "10,000 Contact Credits",
-      "1,000 Direct Dials",
-      "Multi-client sub-workspaces",
-      "White-label shareable reports",
-      "20% agency rev-share",
+      "Up to 5 competitors per analysis",
+      `${PLANS.SCALE.monthlyTaskRuns} analyses / month`,
+      "Deep dive + historical trend velocity",
+      "5-way market landscape matrix",
+      "Regional ad compliance variants (US vs. EU/UK)",
+      "5 sprint cards",
+      "1-click sync to Clay, Smartlead, Instantly & CRM",
+      "Daily price & ad shift alerts",
     ],
   },
 ];
@@ -74,30 +61,30 @@ export default function PricingPage() {
         </p>
       </div>
 
-      <div className="mt-10 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {PLANS.map((p) => (
+      <div className="mt-10 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {TIERS.map((p) => (
           <div
-            key={p.id}
+            key={p.tier}
             className={cn(
               "glass relative flex flex-col p-6",
-              p.featured && "shadow-[0_0_0_0.5px_var(--brand),0_1px_2px_0_rgb(0_0_0/.5),0_3px_4px_-2px_rgb(0_0_0/.4)]",
+              "featured" in p && p.featured && "shadow-[0_0_0_0.5px_var(--brand),0_1px_2px_0_rgb(0_0_0/.5),0_3px_4px_-2px_rgb(0_0_0/.4)]",
             )}
           >
-            {p.featured && (
+            {"featured" in p && p.featured && (
               <ToneBadge tone="brand" className="absolute -top-2.5 left-5">
                 Most summoned
               </ToneBadge>
             )}
-            <h2 className="text-[15px] font-semibold tracking-tight">{p.name}</h2>
+            <h2 className="text-[15px] font-semibold tracking-tight">{p.label}</h2>
             <p className="text-xs text-muted-foreground">{p.tagline}</p>
             <div className="mt-4 flex items-baseline gap-1">
               <span className="num text-3xl font-semibold tracking-tight">
-                ${p.monthly}
+                ${p.monthlyPriceUsd}
               </span>
               <span className="text-xs text-muted-foreground">/mo</span>
             </div>
             <p className="num mt-0.5 text-[11px] text-muted-foreground">
-              {p.annual ? `$${p.annual}/mo billed annually` : "free forever"}
+              {p.annualPriceUsd ? `$${p.annualPriceUsd}/mo billed annually` : "one free analysis"}
             </p>
             <ul className="mt-5 flex flex-1 flex-col gap-2">
               {p.features.map((f) => (
@@ -108,7 +95,7 @@ export default function PricingPage() {
               ))}
             </ul>
             <div className="mt-6">
-              {p.id === "free" ? (
+              {p.tier === "FREE_TRIAL" ? (
                 <a
                   href="/#summon"
                   className="inline-flex h-9 w-full items-center justify-center rounded-lg bg-card text-sm font-medium shadow-[var(--shadow-button)] transition-all hover:bg-muted active:scale-[0.97]"
@@ -116,7 +103,7 @@ export default function PricingPage() {
                   Start free
                 </a>
               ) : (
-                <CheckoutButton plan={p.id} featured={p.featured} />
+                <CheckoutButton plan={p.slug} label={p.label} featured={"featured" in p && p.featured} />
               )}
             </div>
           </div>

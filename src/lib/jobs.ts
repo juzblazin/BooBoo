@@ -32,6 +32,11 @@ export function jobEvents(spellId: string): { events: CastEvent[]; done: boolean
   return { events: j?.events ?? [], done: j?.done ?? false, failed: j?.failed };
 }
 
+export function isJobActive(spellId: string) {
+  const j = jobs.get(spellId);
+  return Boolean(j && !j.done);
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function emit(spell: GrimoireSpell, job: Job, e: Omit<CastEvent, "at">) {
@@ -145,14 +150,21 @@ export function startCastJob(spell: GrimoireSpell) {
         detail: `Total gateway cost: $${(costMicro / 1_000_000).toFixed(2)}`,
         state: "summoned",
       });
-      job.done = true;
       await store.putSpell(spell);
+      await store.commitTaskRun(spell.id);
+      spell.quotaState = "committed";
+      job.done = true;
     } catch (err) {
       job.done = true;
       job.failed = err instanceof Error ? err.message : "Cast failed";
       spell.status = "failed";
       spell.error = job.failed;
       await store.putSpell(spell).catch(() => {});
+      // AC-02 — a run that never completes gives the quota (incl. the free try) back.
+      await store
+        .refundTaskRun(spell.id, job.failed)
+        .then((refunded) => refunded && (spell.quotaState = "refunded"))
+        .catch(() => {});
     }
   })();
 }

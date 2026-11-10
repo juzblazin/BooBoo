@@ -12,6 +12,7 @@ import type {
   StoreDriver,
   TeleportIntegration,
 } from "./types";
+import { PLANS, normalizeTier } from "@/lib/plans";
 
 /** JSON-file store used when DATABASE_URL is not configured. Dev/demo only. */
 
@@ -28,6 +29,35 @@ interface FileData {
 }
 
 const FILE = ".boo-data/store.json";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Upgrades rows written before tiered gating (free/apprentice/sorcerer/coven, spellsBalance). */
+function normalizeWorkspace(raw: any): Workspace {
+  const planTier = normalizeTier(raw.planTier);
+  const legacyRemaining =
+    typeof raw.spellsBalance === "number"
+      ? Math.max(0, raw.spellsBalance - (raw.spellsUsed ?? 0))
+      : undefined;
+  const { spellsBalance: _legacy, ...rest } = raw;
+  return {
+    ...rest,
+    planTier,
+    maxCompetitorsPerTask: raw.maxCompetitorsPerTask ?? PLANS[planTier].maxCompetitorsPerTask,
+    freeTrialConsumed:
+      raw.freeTrialConsumed ?? (planTier === "FREE_TRIAL" && (raw.spellsUsed ?? 0) > 0),
+    monthlyTaskRunsRemaining:
+      raw.monthlyTaskRunsRemaining ?? legacyRemaining ?? PLANS[planTier].monthlyTaskRuns,
+  };
+}
+
+function normalizeSpell(raw: any, d: FileData): GrimoireSpell {
+  return {
+    ...raw,
+    tierAtExecution: normalizeTier(raw.tierAtExecution ?? d.workspaces[raw.workspaceId]?.planTier),
+    quotaState: raw.quotaState ?? "committed",
+  };
+}
 let cache: FileData | null = null;
 
 async function load(): Promise<FileData> {
@@ -48,6 +78,8 @@ async function load(): Promise<FileData> {
       ledger: [],
     };
   }
+  for (const [id, w] of Object.entries(cache!.workspaces)) cache!.workspaces[id] = normalizeWorkspace(w);
+  for (const [id, sp] of Object.entries(cache!.spells)) cache!.spells[id] = normalizeSpell(sp, cache!);
   return cache!;
 }
 
@@ -59,11 +91,88 @@ async function persist() {
 
 export const fileDriver: StoreDriver = {
   async getWorkspace(id) {
-    return (await load()).workspaces[id] ?? null;
+    const w = (await load()).workspaces[id];
+    return w ? { ...w } : null;
   },
   async putWorkspace(w) {
-    (await load()).workspaces[w.id] = w;
+    const d = await load();
+    const prev = d.workspaces[w.id];
+    d.workspaces[w.id] = prev
+      ? {
+          ...w,
+          planTier: prev.planTier,
+          maxCompetitorsPerTask: prev.maxCompetitorsPerTask,
+          freeTrialConsumed: prev.freeTrialConsumed,
+          monthlyTaskRunsRemaining: prev.monthlyTaskRunsRemaining,
+          spellsUsed: prev.spellsUsed,
+        }
+      : { ...w };
     await persist();
+  },
+  async applyPlan(workspaceId, tier) {
+    const d = await load();
+    const w = d.workspaces[workspaceId];
+    if (!w) return null;
+    const plan = PLANS[tier];
+    Object.assign(w, {
+      planTier: tier,
+      maxCompetitorsPerTask: plan.maxCompetitorsPerTask,
+      monthlyTaskRunsRemaining: plan.monthlyTaskRuns,
+      elixirCreditsBalance: plan.elixirs,
+    });
+    await persist();
+    return { ...w };
+  },
+
+  // Check-and-mutate happens synchronously after load(), so it is atomic within the process.
+  async reserveTaskRun(workspaceId, competitorCount) {
+    const d = await load();
+    const w = d.workspaces[workspaceId];
+    if (
+      !w ||
+      w.monthlyTaskRunsRemaining <= 0 ||
+      w.maxCompetitorsPerTask < competitorCount ||
+      (w.planTier === "FREE_TRIAL" && w.freeTrialConsumed)
+    ) {
+      return null;
+    }
+    w.monthlyTaskRunsRemaining -= 1;
+    w.spellsUsed += 1;
+    await persist();
+    return { ...w };
+  },
+  async releaseTaskRun(workspaceId) {
+    const d = await load();
+    const w = d.workspaces[workspaceId];
+    if (!w) return;
+    w.monthlyTaskRunsRemaining += 1;
+    w.spellsUsed = Math.max(0, w.spellsUsed - 1);
+    await persist();
+  },
+  async commitTaskRun(spellId) {
+    const d = await load();
+    const sp = d.spells[spellId];
+    if (!sp || sp.quotaState !== "reserved") return false;
+    sp.quotaState = "committed";
+    const w = d.workspaces[sp.workspaceId];
+    if (w && sp.tierAtExecution === "FREE_TRIAL") w.freeTrialConsumed = true;
+    await persist();
+    return true;
+  },
+  async refundTaskRun(spellId, reason) {
+    const d = await load();
+    const sp = d.spells[spellId];
+    if (!sp || sp.quotaState !== "reserved") return false;
+    sp.quotaState = "refunded";
+    sp.status = "failed";
+    sp.error ??= reason;
+    const w = d.workspaces[sp.workspaceId];
+    if (w) {
+      w.monthlyTaskRunsRemaining += 1;
+      w.spellsUsed = Math.max(0, w.spellsUsed - 1);
+    }
+    await persist();
+    return true;
   },
 
   async getSpell(id) {
@@ -74,7 +183,16 @@ export const fileDriver: StoreDriver = {
     return Object.values(d.spells).find((s) => s.publicShareSlug === slug) ?? null;
   },
   async putSpell(s) {
-    (await load()).spells[s.id] = s;
+    const d = await load();
+    const prev = d.spells[s.id];
+    // quota_state is owned by commit/refund; a refunded spell stays failed.
+    d.spells[s.id] = prev
+      ? {
+          ...s,
+          quotaState: prev.quotaState,
+          status: prev.quotaState === "refunded" ? "failed" : s.status,
+        }
+      : { ...s };
     await persist();
   },
   async listSpells(workspaceId) {
